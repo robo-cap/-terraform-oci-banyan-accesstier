@@ -1,0 +1,341 @@
+title: "Banyan OCI Access Tier Module."
+stackDescription: "Creates an autoscaling Access Tier for use with Banyan Security." 
+description: "This module creates an OCI instance pool and a load balancer (LB) for a Banyan Access Tier. Only the LB is exposed to the public internet. The Access Tier and your applications live in private subnet with no ingress from the internet."
+schemaVersion: 1.1.0
+version: "20190404"
+locale: "en"
+
+#################
+# Variable Groups
+#################
+variableGroups:
+
+- title: Resource placing
+  visible: true  
+  variables:
+    - compartment_id
+    - show_advanced
+
+- title: Instance pool setup
+  visible: true  
+  variables:
+    - compute_shape
+    - compute_ocpus
+    - compute_memory_in_gbs
+    - image_id
+    - ssh_public_key
+    - min_instances
+
+- title: Networking Setup
+  visible: true
+  variables:
+    - vcnCompartment
+    - vcn_id
+    - subnetCompartment
+    - public_subnet_id
+    - private_subnet_id
+    
+- title: Banyan setup
+  visible: true
+  variables:
+    - site_name
+    - cluster_name
+    - refresh_token
+    - site_domain_names
+
+- title: Advanced Configuration
+  visible: ${show_advanced}
+  variables:
+  - healthcheck_cidr
+  - management_cidr
+  - shield_cidr
+  - shield_port
+  - command_center_cidr
+  - trustprovider_cidr
+  - managed_internal_cidr
+  - name_prefix
+  - package_name
+  - api_server
+  - redirect_http_to_https
+  - CPU_HIGH_TH
+  - CPU_LOW_TH
+  - lb_shape
+  - lb_min_bw
+  - lb_max_bw
+  - custom_user_data
+  - tags
+  - network_security_group_tags
+  - instance_pool_tags
+  - lb_tags
+  - host_tags
+  - groups_by_userinfo
+
+
+
+- title: Internal Variables
+  visible: false
+  variables:
+    - region
+    - tenancy_ocid
+    - compartment_ocid
+    - default_image_name
+    - rate_limiting
+
+######################
+# Variable Definitions
+######################
+
+variables:
+
+# Required
+
+  compartment_id: 
+    type: oci:identity:compartment:id
+    title: "The compartment in which to create resources"
+    required: true
+
+  vcnCompartment: 
+    type: oci:identity:compartment:id
+    title: "Select existing VCN compartment"
+    required: true
+
+  vcn_id:
+    type: oci:core:vcn:id
+    title: "ID of the VCN in which to create the Access Tier"
+    required: true
+    dependsOn:
+      compartmentId: ${vcnCompartment}
+  
+  subnetCompartment:
+    type: oci:identity:compartment:id
+    title: "Select existing subnet compartment"
+    required: true
+  
+  private_subnet_id:
+    type: oci:core:subnet:id
+    title: "Subnet where the Access Tier should create instances"
+    required: true
+    dependsOn:
+      compartmentId: ${subnetCompartment}
+      vcnId: ${vcn_id}
+
+  public_subnet_id:
+    type: oci:core:subnet:id
+    title: "Subnet where the load balancer should create endpoint"
+    required: true
+    dependsOn:
+      compartmentId: ${subnetCompartment}
+      vcnId: ${vcn_id}
+
+  compute_shape:
+    type: oci:core:instanceshape:name
+    title: "Compute shape to use for Access Tier"
+    required: true
+    dependsOn:
+      compartmentId: ${compartment_id}
+
+  compute_ocpus:
+    type: integer
+    title: "Compute ammount of OCPUs"
+    minimum: 1
+    maximum: 64
+    default: 4
+    required: true
+    visible:
+      or:
+        - eq:
+          - compute_shape
+          - "VM.Standard.E3.Flex"
+        - eq:
+          - compute_shape
+          - "VM.Standard.E4.Flex"
+        - eq:
+          - compute_shape
+          - "VM.Standard.A1.Flex"
+
+  compute_memory_in_gbs:
+    type: integer
+    title: "Compute ammount of RAM Memory in GB"
+    minimum: 1
+    maximum: 1024
+    default: 16
+    required: true
+    visible:
+      or:
+        - eq:
+          - compute_shape
+          - "VM.Standard.E3.Flex"
+        - eq:
+          - compute_shape
+          - "VM.Standard.E4.Flex"
+        - eq:
+          - compute_shape
+          - "VM.Standard.A1.Flex"
+
+  site_name:
+    type: string
+    title: "Name to use when registering this Access Tier with the console"
+    minLength: 1
+    maxLength: 255
+    pattern: "^[a-zA-Z0-9_-]+$"
+    required: true
+
+  cluster_name:
+    type: string
+    title: "Name of an existing Shield cluster to register this Access Tier with"
+    minLength: 1
+    maxLength: 255
+    required: true
+
+  refresh_token:
+    type: string
+    title: "API token generated from the Banyan console"
+    minLength: 1
+    maxLength: 255
+    required: true
+
+  site_domain_names:
+    type: array
+    title: "List of aliases or CNAMEs that will direct traffic to this Access Tier"
+    items:
+      type: string
+
+  region:
+    type: oci:identity:region:name
+    visible: false
+
+  ssh_public_key:
+    type: oci:core:ssh:publickey
+    title: "Public SSH key to allow management access"
+
+  image_id:
+    type: oci:core:image:id
+    title: "Image to use when creating Access Tier instances"
+    required: true
+    dependsOn:
+      compartmentId: ${compartment_id}
+      shape: ${compute_shape}
+      operatingSystem: "Oracle Linux" 
+      
+  show_advanced:
+    type: boolean
+    title: "Show advanced options?"
+    description: "Shows advanced options."
+    visible: true
+    default: false
+
+  healthcheck_cidr:
+    type: string
+    title: "CIDR block to allow health check connections from (recommended to use the VPC CIDR range)"
+    pattern: "^(?:(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\\.){3}(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)/(?:[0-9]|[12][0-9]|3[0-2])$"
+    default: "0.0.0.0/0"
+    required: true
+
+  management_cidr:
+    type: string
+    title: "CIDR block to allow SSH connections from"
+    pattern: "^(?:(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\\.){3}(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)/(?:[0-9]|[12][0-9]|3[0-2])$"
+    default: "0.0.0.0/0"
+    required: true   
+
+  shield_cidr:
+    type: string
+    title: "CIDR blocks to allow Shield (Cluster Coordinator) connections to"
+    pattern: "^(?:(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\\.){3}(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)/(?:[0-9]|[12][0-9]|3[0-2])$"
+    required: true
+  
+  shield_port:
+    type: integer
+    title: "TCP port number to allow Shield (Cluster Coordinator) connections to"
+    description: "Set value 1 to allow all ports"
+    minimum: 1
+    maximum: 65535
+    default: 1
+    required: true
+
+  command_center_cidr:
+    type: string
+    title: "CIDR block to allow Command Center connections to"
+    pattern: "^(?:(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\\.){3}(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)/(?:[0-9]|[12][0-9]|3[0-2])$"
+    default: "0.0.0.0/0"
+    required: true
+  
+  trustprovider_cidr:
+    type: string
+    title: "CIDR block to allow TrustProvider connections to"
+    pattern: "^(?:(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\\.){3}(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)/(?:[0-9]|[12][0-9]|3[0-2])$"
+    default: "0.0.0.0/0"
+    required: true
+
+  managed_internal_cidr:
+    type: string
+    title: "CIDR block to allow managed internal services connections to"
+    pattern: "^(?:(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\\.){3}(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)/(?:[0-9]|[12][0-9]|3[0-2])$"
+    default: "0.0.0.0/0"
+    required: true
+
+  package_name:
+    type: string
+    title: "Override to use a specific version of netagent (e.g. `banyan-netagent-1.5.0`)"
+    default: "banyan-netagent"
+    required: true
+
+  api_server:
+    type: string
+    title: "URL to the Banyan API server"
+    default: "https://net.banyanops.com/api/v1"
+    required: true
+
+  min_instances:
+    type: integer
+    title: "Minimum number of Access Tier instances to keep alive in the instange pool"
+    minimum: 1
+    maximum: 10
+    default: 2
+    required: true
+
+  CPU_HIGH_TH:
+    type: integer
+    title: "CPU threshold for instance pool up-scaling"
+    minimum: ${CPU_LOW_TH}
+    maximum: 99
+    default: 80
+    required: true
+
+  CPU_LOW_TH:
+    type: integer
+    title: "CPU threshold for instance pool down-scaling"
+    minimum: 1
+    maximum: ${CPU_HIGH_TH}
+    default: 20
+    required: true
+  
+  custom_user_data:
+    type: array
+    title: "Custom commands to append to the launch configuration initialization script."
+    items:
+      type: string
+    default: []
+    required: false
+  
+  redirect_http_to_https:
+    type: boolean
+    title: "If true, requests to the AccessTier on port 80 will be redirected to port 443"
+    default: false
+    required: true
+
+  lb_min_bw:
+    type: integer
+    title: "Minimum bandwidth in Mbps for LB"
+    default: 100
+
+  lb_max_bw:
+    type: integer
+    title: "Maximum bandwidth in Mbps for LB"
+    default: 100
+
+  name_prefix:
+    type: string
+    title: "String to be added in front of all OCI object names"
+    default: "banyan"
+    required: true
