@@ -1,14 +1,21 @@
-resource "oci_core_network_security_group" "nsg" {
-  display_name    = "${var.name_prefix}-accesstier-nsg"
+resource "oci_core_network_security_group" "nsg_hosts" {
+  display_name    = "${var.name_prefix}-accesstier-hosts-nsg"
+  compartment_id  = var.compartment_id
+  vcn_id          = var.vcn_id
+  freeform_tags   = merge(local.tags, var.network_security_group_tags)
+}
+
+resource "oci_core_network_security_group" "nsg_nlb" {
+  display_name    = "${var.name_prefix}-accesstier-nlb-nsg"
   compartment_id  = var.compartment_id
   vcn_id          = var.vcn_id
   freeform_tags   = merge(local.tags, var.network_security_group_tags)
 }
 
 
-resource "oci_core_network_security_group_security_rule" "nsg_rules" {
-  for_each                  = local.final_nsg_rules_params
-  network_security_group_id = oci_core_network_security_group.nsg.id
+resource "oci_core_network_security_group_security_rule" "nsg_hosts_rules" {
+  for_each                  = local.hosts_nsg_rules_params
+  network_security_group_id = oci_core_network_security_group.nsg_hosts.id
   protocol                  = each.value.protocol
   stateless                 = each.value.stateless
   direction                 = each.value.direction
@@ -44,16 +51,43 @@ resource "oci_core_network_security_group_security_rule" "nsg_rules" {
   }
 }
 
-# resource "oci_core_network_security_group_security_rule" "nsg_rule_internal" {
-#   network_security_group_id = oci_core_network_security_group.nsg.id
-#   protocol                  = "all"
-#   stateless                 = false
-#   direction                 = "EGRESS"
-#   description               = "Managed internal services"
+resource "oci_core_network_security_group_security_rule" "nsg_nlb_rules" {
+  for_each                  = local.nlb_nsg_rules_params
+  network_security_group_id = oci_core_network_security_group.nsg_nlb.id
+  protocol                  = each.value.protocol
+  stateless                 = each.value.stateless
+  direction                 = each.value.direction
+  description               = each.value.description
 
-#   destination      = var.managed_internal_cidr
-#   destination_type = "CIDR_BLOCK"
-# }
+  source      = each.value.direction == "INGRESS" ? each.value.source : null
+  source_type = each.value.direction == "INGRESS" ? "CIDR_BLOCK" : null
+
+  destination      = each.value.direction == "EGRESS" ? each.value.destination : null
+  destination_type = each.value.direction == "EGRESS" ? "CIDR_BLOCK" : null
+  
+  dynamic "tcp_options" {
+    iterator = tcp_options
+    for_each = each.value.tcp_options != [] ? each.value.tcp_options : []
+    content {
+      dynamic "destination_port_range" {
+        iterator = destination_ports
+        for_each = lookup(tcp_options.value, "destination_ports", null) != null ? tcp_options.value.destination_ports : []
+        content {
+          min = destination_ports.value.min
+          max = destination_ports.value.max
+        }
+      }
+      dynamic "source_port_range" {
+        iterator = source_ports
+        for_each = lookup(tcp_options.value, "source_ports", null) != null ? tcp_options.value.source_ports : []
+        content {
+          min = source_ports.value.min
+          max = source_ports.value.max
+        }
+      }
+    }
+  }
+}
 
 resource "oci_core_instance_pool" "ipool" {
   compartment_id            = var.compartment_id
@@ -62,15 +96,13 @@ resource "oci_core_instance_pool" "ipool" {
   size                      = var.min_instances
   freeform_tags             = merge(local.ipool_tags, var.instance_pool_tags)
 
-  dynamic placement_configurations {
-  iterator = ad
-  for_each = data.oci_identity_availability_domains.ads.availability_domains
-  
-    content {
-      #Required
-      availability_domain = ad.value.name
-      primary_subnet_id = var.private_subnet_id
-    }
+  dynamic "placement_configurations" {
+    iterator = ad
+    for_each = data.oci_identity_availability_domains.ads.availability_domains
+      content {
+        availability_domain = ad.value.name
+        primary_subnet_id = var.private_subnet_id
+      }
   }
 
   dynamic "load_balancers" {
@@ -121,7 +153,7 @@ resource "oci_core_instance_configuration" "conf" {
       }
 
       create_vnic_details {
-        nsg_ids          = tolist([oci_core_network_security_group.nsg.id])
+        nsg_ids          = tolist([oci_core_network_security_group.nsg_hosts.id])
         assign_public_ip = false
       }
 
@@ -149,7 +181,7 @@ resource "oci_core_instance_configuration" "conf" {
           "yum install -y jq tar gzip curl sed python3 policycoreutils-python-utils\n",
           "pip3 install --upgrade pip\n",
           "/usr/local/bin/pip3 install pybanyan\n", # previous line changes /bin/pip3 to /usr/local/bin which is not in the path
-          "restorecon -v /var/lib\n",
+          var.datadog_api_key != "" ? "curl -L https://s3.amazonaws.com/dd-agent/scripts/install_script.sh | DD_AGENT_MAJOR_VERSION=7 DD_API_KEY=${var.datadog_api_key} DD_SITE=${var.datadog_site} bash -v\n" : "",
           "for i in 1 2 3 4 5; do rpm --import https://www.banyanops.com/onramp/repo/RPM-GPG-KEY-banyan && break || sleep 15; done\n",
           "yum-config-manager --add-repo https://www.banyanops.com/onramp/repo\n",
           "while [ -f /var/run/yum.pid ]; do sleep 1; done\n",
@@ -171,6 +203,7 @@ resource "oci_core_instance_configuration" "conf" {
           "BANYAN_ACCESS_EVENT_KEY_LIMITING=${var.rate_limiting.enable_by_key} ",
           "BANYAN_ACCESS_EVENT_KEY_EXPIRATION=${var.rate_limiting.key_lifetime} ",
           "BANYAN_GROUPS_BY_USERINFO=${var.groups_by_userinfo} ",
+          var.datadog_api_key != "" ? "BANYAN_STATSD=true BANYAN_STATSD_ADDRESS=127.0.0.1:8125 " : "",
           "./install ${var.refresh_token} ${var.cluster_name}\n",
           "sed -i -e '/^#Port/s/^.*$/Port 2222/' /etc/ssh/sshd_config\n",
           "semanage port -a -t ssh_port_t -p tcp 2222\n",
@@ -196,7 +229,7 @@ resource "oci_network_load_balancer_network_load_balancer" "nlb" {
   subnet_id                      = var.public_subnet_id
   is_private                     = false
   is_preserve_source_destination = true
-  network_security_group_ids     = tolist([oci_core_network_security_group.nsg.id])
+  network_security_group_ids     = tolist([oci_core_network_security_group.nsg_nlb.id])
   freeform_tags                  = merge(local.tags, var.nlb_tags)
 }
 

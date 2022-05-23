@@ -39,7 +39,7 @@ locals {
             }
   }
 
-  base_nsg_rules_params = merge(
+  base_hosts_nsg_rules_params = merge(
     {
         for cidr in ["0.0.0.0/0"]:
             format("ingress_%s_443", cidr) => {
@@ -213,5 +213,55 @@ locals {
 
     }
   )
-  final_nsg_rules_params = var.redirect_http_to_https ? merge(local.base_nsg_rules_params, local.ingress_80) : local.base_nsg_rules_params
+
+  base_nlb_nsg_rules_params = merge(
+    {
+        for cidr in ["0.0.0.0/0"]:
+            format("ingress_%s_443", cidr) => {
+                description      = "Web traffic"
+                protocol         = "6"
+                stateless        = "false"
+                direction        = "INGRESS"
+                source           = cidr
+                destination      = null
+                tcp_options      = [
+                    {
+                    destination_ports = [
+                        {
+                        min = 443
+                        max = 443
+                        }
+                    ],
+                    source_ports = []
+                    }
+                ]
+            }
+    },
+    {
+        for cidr in ["0.0.0.0/0"]:
+            format("ingress_%s_8443", cidr) => {
+                description      = "Allow for web traffic"
+                protocol         = "6"
+                stateless        = "false"
+                direction        = "INGRESS"
+                source           = cidr
+                destination      = null
+                tcp_options      = [
+                    {
+                    destination_ports = [
+                        {
+                        min = 8443
+                        max = 8443
+                        }
+                    ],
+                    source_ports = []
+                    }
+                ]
+            }
+    }
+  )
+  
+  hosts_nsg_rules_params = var.redirect_http_to_https ? merge(local.base_hosts_nsg_rules_params, local.ingress_80) : local.base_hosts_nsg_rules_params
+  nlb_nsg_rules_params = var.redirect_http_to_https ? merge(local.base_nlb_nsg_rules_params, local.ingress_80) : local.base_hosts_nsg_rules_params
+
 }

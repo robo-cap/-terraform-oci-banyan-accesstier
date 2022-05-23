@@ -180,6 +180,18 @@ variable "redirect_http_to_https" {
   default     = false
 }
 
+variable "datadog_api_key" {
+  type        = string
+  description = "API key for DataDog"
+  default     = ""
+}
+
+variable "datadog_site" {
+  type        = string
+  description = "Site for DataDog"
+  default     = "datadoghq.com"
+}
+
 variable "tags" {
   type        = map(any)
   description = "Add tags to each resource"

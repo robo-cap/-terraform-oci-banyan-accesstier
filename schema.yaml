@@ -60,12 +60,15 @@ variableGroups:
   - CPU_HIGH_TH
   - CPU_LOW_TH
   - custom_user_data
+  - datadog_api_key
+  - datadog_site
   - tags
   - network_security_group_tags
   - instance_pool_tags
   - nlb_tags
   - host_tags
   - groups_by_userinfo
+
 
 
 
@@ -182,7 +185,7 @@ variables:
     title: "Name of an existing Shield cluster to register this Access Tier with"
     minLength: 1
     maxLength: 255
-    required: true
+    required: trueoperatingSystemVersion: "7.9"
 
   refresh_token:
     type: string
@@ -213,6 +216,7 @@ variables:
       compartmentId: ${compartment_id}
       shape: ${compute_shape}
       operatingSystem: "Oracle Linux" 
+      operatingSystemVersion: "7.9"
       
   show_advanced:
     type: boolean
@@ -338,3 +342,15 @@ variables:
     title: "String to be added in front of all OCI object names"
     default: "banyan"
     required: true
+
+  datadog_api_key:
+    type: string
+    title: "API key for DataDog"
+    default: ""
+    required: false
+  
+  datadog_site:
+    type: string
+    title: "Site for DataDog"
+    default: "datadoghq.com"
+    required: false
