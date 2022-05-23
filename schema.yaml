@@ -185,7 +185,7 @@ variables:
     title: "Name of an existing Shield cluster to register this Access Tier with"
     minLength: 1
     maxLength: 255
-    required: trueoperatingSystemVersion: "7.9"
+    required: true
 
   refresh_token:
     type: string
