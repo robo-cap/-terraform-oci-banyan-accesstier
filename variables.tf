@@ -23,46 +23,46 @@ variable "vcn_id" {
   description = "ID of the VCN in which to create the Access Tier"
 }
 
-variable "healthcheck_cidr" {
-  type        = string
-  description = "CIDR block to allow health check connections from (recommended to use the VPC CIDR range)"
-  default     = "0.0.0.0/0"
+variable "healthcheck_cidrs" {
+  type        = list(string)
+  description = "CIDR blocks to allow health check connections from (recommended to use the VPC CIDR range)"
+  default     = ["0.0.0.0/0"]
 }
 
-variable "management_cidr" {
-  type        = string
-  description = "CIDR block to allow SSH connections from"
-  default     = "0.0.0.0/0"
+variable "management_cidrs" {
+  type        = list(string)
+  description = "CIDR blocks to allow SSH connections from"
+  default     = ["0.0.0.0/0"]
 }
 
-variable "shield_cidr" {
-  type        = string
+variable "shield_cidrs" {
+  type        = list(string)
   description = "CIDR blocks to allow Shield (Cluster Coordinator) connections to"
-  default     = "0.0.0.0/0"
+  default     = ["0.0.0.0/0"]
 }
 
 variable "shield_port" {
   type        = number
   description = "TCP port number to allow Shield (Cluster Coordinator) connections to"
-  default     = 1
+  default     = 0
 }
 
-variable "command_center_cidr" {
-  type        = string
-  description = "CIDR block to allow Command Center connections to"
-  default     = "0.0.0.0/0"
+variable "command_center_cidrs" {
+  type        = list(string)
+  description = "CIDR blocks to allow Command Center connections to"
+  default     = ["0.0.0.0/0"]
 }
 
-variable "trustprovider_cidr" {
-  type        = string
-  description = "CIDR block to allow TrustProvider connections to"
-  default     = "0.0.0.0/0"
+variable "trustprovider_cidrs" {
+  type        = list(string)
+  description = "CIDR blocks to allow TrustProvider connections to"
+  default     = ["0.0.0.0/0"]
 }
 
-variable "managed_internal_cidr" {
-  type        = string
-  description = "CIDR block to allow managed internal services connections to"
-  default     = "0.0.0.0/0"
+variable "managed_internal_cidrs" {
+  type        = list(string)
+  description = "CIDR blocks to allow managed internal services connections to"
+  default     = ["0.0.0.0/0"]
 }
 
 # variable "public_subnet_ids" {
@@ -128,7 +128,8 @@ variable "site_domain_names" {
 variable "api_server" {
   type        = string
   description = "URL to the Banyan API server"
-  default     = "https://net.banyanops.com/api/v1"
+  default     = "https://preview.console.banyanops.com/api/v1"
+  #default     = "https://net.banyanops.com/api/v1"
 }
 
 variable "ssh_public_key" {
@@ -197,28 +198,10 @@ variable "instance_pool_tags" {
   default     = null
 }
 
-variable "lb_tags" {
+variable "nlb_tags" {
   type        = map
   description = "Additional tags to the lb"
   default     = null
-}
-
-variable "lb_shape" {
-  type        = string
-  description = "Additional tags to the lb"
-  default     = "flexible"
-}
-
-variable "lb_min_bw" {
-  type        = number
-  description = "Minimum bandwidth in Mbps for LB"
-  default     = 100
-}
-
-variable "lb_max_bw" {
-  type        = number
-  description = "Maximum bandwidth in Mbps for LB"
-  default     = 100
 }
 
 variable "host_tags" {

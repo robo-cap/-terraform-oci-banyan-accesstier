@@ -1,207 +1,3 @@
-locals {
-
-  compute_flexible_shapes = [
-    "VM.Standard.E3.Flex",
-    "VM.Standard.E4.Flex",
-    "VM.Standard.A1.Flex"
-  ]
-
-  is_flexible_node_shape = contains(local.compute_flexible_shapes, var.compute_shape)
-
-  tags = merge(var.tags, {
-    Provider = "BanyanOps"
-  })
-
-  ipool_tags = merge(local.tags, {
-    Name = "${var.site_name}-BanyanHost"
-  })
-
-  nsg_rules_params = {
-    ingress_443 = {
-      description      = "Web traffic HTTPS"
-      protocol         = "6"
-      stateless        = "false"
-      direction        = "INGRESS"
-      source           = "0.0.0.0/0"
-      source_type      = "CIDR_BLOCK"
-      destination      = null
-      destination_type = null
-      tcp_options = [
-        {
-          destination_ports = [
-            {
-              min = 443
-              max = 443
-            }
-          ],
-          source_ports = []
-        }
-      ]
-    },
-    ingress_80 = {
-      description      = "Web traffic HTTP"
-      protocol         = "6"
-      stateless        = "false"
-      direction        = "INGRESS"
-      source           = "0.0.0.0/0"
-      source_type      = "CIDR_BLOCK"
-      destination      = null
-      destination_type = null
-      tcp_options = [
-        {
-          destination_ports = [
-            {
-              min = 80
-              max = 80
-            }
-          ],
-          source_ports = []
-        }
-      ]
-    },
-    ingress_8443 = {
-      description      = "Allow for web traffic"
-      protocol         = "6"
-      stateless        = "false"
-      direction        = "INGRESS"
-      source           = "0.0.0.0/0"
-      source_type      = "CIDR_BLOCK"
-      destination      = null
-      destination_type = null
-      tcp_options = [
-        {
-          destination_ports = [
-            {
-              min = 8443
-              max = 8443
-            }
-          ],
-          source_ports = []
-        }
-      ]
-    },
-    ingress_9998 = {
-      description      = "Healthcheck"
-      protocol         = "6"
-      stateless        = "false"
-      direction        = "INGRESS"
-      source           = var.healthcheck_cidr
-      source_type      = "CIDR_BLOCK"
-      destination      = null
-      destination_type = null
-      tcp_options = [
-        {
-          destination_ports = [
-            {
-              min = 9998
-              max = 9998
-            }
-          ],
-          source_ports = []
-        }
-      ]
-    },
-    ingress_2222 = {
-      description      = "Management"
-      protocol         = "6"
-      stateless        = "false"
-      direction        = "INGRESS"
-      source           = var.management_cidr
-      source_type      = "CIDR_BLOCK"
-      destination      = null
-      destination_type = null
-      tcp_options = [
-        {
-          destination_ports = [
-            {
-              min = 2222
-              max = 2222
-            }
-          ],
-          source_ports = []
-        }
-      ]
-    },
-    egress_shield = {
-      description      = "Shield (Cluster Coordinator)"
-      protocol         = "6"
-      stateless        = "false"
-      direction        = "EGRESS"
-      source           = null
-      source_type      = null
-      destination      = var.shield_cidr
-      destination_type = "CIDR_BLOCK"
-      tcp_options = [
-        {
-          destination_ports = [
-            {
-              min = var.shield_port  # shield_port defaults to 0
-              max = var.shield_port != 1 ? var.shield_port : 65535
-            }
-          ],
-          source_ports = []
-        }
-      ]
-    },
-    egress_https_cc = {
-      description      = "Command Center"
-      protocol         = "6"
-      stateless        = "false"
-      direction        = "EGRESS"
-      source           = null
-      source_type      = null
-      destination      = var.command_center_cidr
-      destination_type = "CIDR_BLOCK"
-      tcp_options = [
-        {
-          destination_ports = [
-            {
-              min = 443
-              max = 443
-            }
-          ],
-          source_ports = []
-        }
-      ]
-    },
-    egress_https_tp = {
-      description      = "Command Center"
-      protocol         = "6"
-      stateless        = "false"
-      direction        = "EGRESS"
-      source           = null
-      source_type      = null
-      destination      = var.trustprovider_cidr
-      destination_type = "CIDR_BLOCK"
-      tcp_options = [
-        {
-          destination_ports = [
-            {
-              min = 443
-              max = 443
-            }
-          ],
-          source_ports = []
-        }
-      ]
-    }
-  }
-}
-
-data oci_core_images "default_images" {
-  compartment_id = var.compartment_id
-
-  filter {
-    name   = "display_name"
-    regex  = true
-    values = [var.default_image_name]
-  }
-}
-
-data "oci_identity_availability_domains" "ads" {
-  compartment_id = var.compartment_id
-}
-
 resource "oci_core_network_security_group" "nsg" {
   display_name    = "${var.name_prefix}-accesstier-nsg"
   compartment_id  = var.compartment_id
@@ -209,8 +5,9 @@ resource "oci_core_network_security_group" "nsg" {
   freeform_tags   = merge(local.tags, var.network_security_group_tags)
 }
 
+
 resource "oci_core_network_security_group_security_rule" "nsg_rules" {
-  for_each                  = local.nsg_rules_params
+  for_each                  = local.final_nsg_rules_params
   network_security_group_id = oci_core_network_security_group.nsg.id
   protocol                  = each.value.protocol
   stateless                 = each.value.stateless
@@ -218,14 +15,14 @@ resource "oci_core_network_security_group_security_rule" "nsg_rules" {
   description               = each.value.description
 
   source      = each.value.direction == "INGRESS" ? each.value.source : null
-  source_type = each.value.direction == "INGRESS" ? each.value.source_type : null
+  source_type = each.value.direction == "INGRESS" ? "CIDR_BLOCK" : null
 
   destination      = each.value.direction == "EGRESS" ? each.value.destination : null
-  destination_type = each.value.direction == "EGRESS" ? each.value.destination_type : null
+  destination_type = each.value.direction == "EGRESS" ? "CIDR_BLOCK" : null
   
   dynamic "tcp_options" {
     iterator = tcp_options
-    for_each = each.value.tcp_options != null ? each.value.tcp_options : []
+    for_each = each.value.tcp_options != [] ? each.value.tcp_options : []
     content {
       dynamic "destination_port_range" {
         iterator = destination_ports
@@ -247,16 +44,16 @@ resource "oci_core_network_security_group_security_rule" "nsg_rules" {
   }
 }
 
-resource "oci_core_network_security_group_security_rule" "nsg_rule_internal" {
-  network_security_group_id = oci_core_network_security_group.nsg.id
-  protocol                  = "all"
-  stateless                 = false
-  direction                 = "EGRESS"
-  description               = "Managed internal services"
+# resource "oci_core_network_security_group_security_rule" "nsg_rule_internal" {
+#   network_security_group_id = oci_core_network_security_group.nsg.id
+#   protocol                  = "all"
+#   stateless                 = false
+#   direction                 = "EGRESS"
+#   description               = "Managed internal services"
 
-  destination      = var.managed_internal_cidr
-  destination_type = "CIDR_BLOCK"
-}
+#   destination      = var.managed_internal_cidr
+#   destination_type = "CIDR_BLOCK"
+# }
 
 resource "oci_core_instance_pool" "ipool" {
   compartment_id            = var.compartment_id
@@ -276,23 +73,26 @@ resource "oci_core_instance_pool" "ipool" {
     }
   }
 
-  load_balancers {
-      backend_set_name     = oci_load_balancer_backend_set.backendset80.name
-      load_balancer_id     = oci_load_balancer_load_balancer.lb.id
+  dynamic "load_balancers" {
+    for_each = var.redirect_http_to_https ? [true] : []
+    content {
+      backend_set_name     = oci_network_load_balancer_backend_set.backendset80.name
+      load_balancer_id     = oci_network_load_balancer_network_load_balancer.nlb.id
       port                 = 80
       vnic_selection       = "PrimaryVnic"
+    }
   }
 
   load_balancers {
-      backend_set_name     = oci_load_balancer_backend_set.backendset443.name
-      load_balancer_id     = oci_load_balancer_load_balancer.lb.id
+      backend_set_name     = oci_network_load_balancer_backend_set.backendset443.name
+      load_balancer_id     = oci_network_load_balancer_network_load_balancer.nlb.id
       port                 = 443
       vnic_selection       = "PrimaryVnic"
   }
 
   load_balancers {
-      backend_set_name     = oci_load_balancer_backend_set.backendset8443.name
-      load_balancer_id     = oci_load_balancer_load_balancer.lb.id
+      backend_set_name     = oci_network_load_balancer_backend_set.backendset8443.name
+      load_balancer_id     = oci_network_load_balancer_network_load_balancer.nlb.id
       port                 = 8443
       vnic_selection       = "PrimaryVnic"
   }
@@ -313,7 +113,7 @@ resource "oci_core_instance_configuration" "conf" {
       shape = var.compute_shape
     
       dynamic "shape_config" {
-        for_each = local.is_flexible_node_shape ? [1] : []
+        for_each = local.is_flexible_node_shape ? [true] : []
         content {
           memory_in_gbs            = var.compute_memory_in_gbs
           ocpus                    = var.compute_ocpus
@@ -346,19 +146,20 @@ resource "oci_core_instance_configuration" "conf" {
           "echo '262144' > /proc/sys/net/netfilter/nf_conntrack_max\n",
           # install prerequisites and Banyan netagent
           "yum update -y\n",
-          "yum install -y jq tar gzip curl sed python3\n",
+          "yum install -y jq tar gzip curl sed python3 policycoreutils-python-utils\n",
           "pip3 install --upgrade pip\n",
           "/usr/local/bin/pip3 install pybanyan\n", # previous line changes /bin/pip3 to /usr/local/bin which is not in the path
-          "rpm --import https://www.banyanops.com/onramp/repo/RPM-GPG-KEY-banyan\n",
+          "restorecon -v /var/lib\n",
+          "for i in 1 2 3 4 5; do rpm --import https://www.banyanops.com/onramp/repo/RPM-GPG-KEY-banyan && break || sleep 15; done\n",
           "yum-config-manager --add-repo https://www.banyanops.com/onramp/repo\n",
           "while [ -f /var/run/yum.pid ]; do sleep 1; done\n",
-          "yum install -y ${var.package_name} \n",
+          "yum install -y ${var.package_name}\n",
           # configure and start netagent
           "cd /opt/banyan-packages\n",
           "BANYAN_ACCESS_TIER=true ",
           "BANYAN_REDIRECT_TO_HTTPS=${var.redirect_http_to_https} ",
           "BANYAN_SITE_NAME=${var.site_name} ",
-          "BANYAN_SITE_ADDRESS=${oci_load_balancer_load_balancer.lb.ip_address_details[0].ip_address} ",
+          "BANYAN_SITE_ADDRESS=${oci_network_load_balancer_network_load_balancer.nlb.ip_addresses[0].ip_address} ",
           "BANYAN_SITE_DOMAIN_NAMES=", join(",", var.site_domain_names), " ",
           "BANYAN_SITE_AUTOSCALE=true ",
           "BANYAN_API=${var.api_server} ",
@@ -370,7 +171,7 @@ resource "oci_core_instance_configuration" "conf" {
           "BANYAN_ACCESS_EVENT_KEY_LIMITING=${var.rate_limiting.enable_by_key} ",
           "BANYAN_ACCESS_EVENT_KEY_EXPIRATION=${var.rate_limiting.key_lifetime} ",
           "BANYAN_GROUPS_BY_USERINFO=${var.groups_by_userinfo} ",
-          "./install ${var.refresh_token} ${var.cluster_name} \n",
+          "./install ${var.refresh_token} ${var.cluster_name}\n",
           "sed -i -e '/^#Port/s/^.*$/Port 2222/' /etc/ssh/sshd_config\n",
           "semanage port -a -t ssh_port_t -p tcp 2222\n",
           "/bin/systemctl restart sshd.service\n",
@@ -389,85 +190,83 @@ resource "oci_core_instance_configuration" "conf" {
   }
 }
 
-resource "oci_load_balancer_load_balancer" "lb" {
-  display_name                     = "${var.name_prefix}-lb"
-  compartment_id                   = var.compartment_id
-  is_private                       = false
-  subnet_ids                       = tolist([var.public_subnet_id])
-
-  shape                            = var.lb_shape
-  shape_details {
-    maximum_bandwidth_in_mbps = var.lb_max_bw
-    minimum_bandwidth_in_mbps = var.lb_min_bw
-  }
-
-  freeform_tags = merge(local.tags, var.lb_tags)
+resource "oci_network_load_balancer_network_load_balancer" "nlb" {
+  display_name                   = "${var.name_prefix}-nlb"
+  compartment_id                 = var.compartment_id
+  subnet_id                      = var.public_subnet_id
+  is_private                     = false
+  is_preserve_source_destination = true
+  network_security_group_ids     = tolist([oci_core_network_security_group.nsg.id])
+  freeform_tags                  = merge(local.tags, var.nlb_tags)
 }
 
-resource "oci_load_balancer_backend_set" "backendset443" {
-  name             = "${var.name_prefix}-backendset-443"
-  load_balancer_id = oci_load_balancer_load_balancer.lb.id
-  policy           = "IP_HASH"
+resource "oci_network_load_balancer_backend_set" "backendset443" {
+  name                      = "${var.name_prefix}-backendset-443"
+  network_load_balancer_id  = oci_network_load_balancer_network_load_balancer.nlb.id
+  policy                    = "FIVE_TUPLE"
 
   health_checker {
-    port        = 9998
-    protocol    = "HTTP"
-    url_path    = "/"
-    retries     = 2
-    interval_ms = 3000
+    port                = 9998
+    protocol            = "HTTP"
+    return_code         = 200
+    url_path            = "/"
+    retries             = 2
+    interval_in_millis  = 30000
   }
 }
 
-resource "oci_load_balancer_listener" "listener443" {
-  load_balancer_id           = oci_load_balancer_load_balancer.lb.id
+resource "oci_network_load_balancer_listener" "listener443" {
+  network_load_balancer_id   = oci_network_load_balancer_network_load_balancer.nlb.id
   name                       = "${var.name_prefix}-listener-443"
-  default_backend_set_name   = oci_load_balancer_backend_set.backendset443.name
+  default_backend_set_name   = oci_network_load_balancer_backend_set.backendset443.name
   port                       = 443
   protocol                   = "TCP"
 }
 
-resource "oci_load_balancer_backend_set" "backendset80" {
-  # count = var.redirect_http_to_https ? 1 : 0
-  name             = "${var.name_prefix}-backendset-80"
-  load_balancer_id = oci_load_balancer_load_balancer.lb.id
-  policy           = "IP_HASH"
+resource "oci_network_load_balancer_backend_set" "backendset80" {
+  count                    = var.redirect_http_to_https ? 1 : 0
+  name                     = "${var.name_prefix}-backendset-80"
+  network_load_balancer_id = oci_network_load_balancer_network_load_balancer.nlb.id
+  policy                   = "FIVE_TUPLE"
 
   health_checker {
-    port        = 9998
-    protocol    = "HTTP"
-    url_path    = "/"
-    retries     = 2
-    interval_ms = 3000
+    port                = 9998
+    protocol            = "HTTP"
+    return_code         = 200
+    url_path            = "/"
+    retries             = 2
+    interval_in_millis  = 30000
   }
 }
 
-resource "oci_load_balancer_listener" "listener80" {
-  # count = var.redirect_http_to_https ? 1 : 0
-  load_balancer_id           = oci_load_balancer_load_balancer.lb.id
+resource "oci_network_load_balancer_listener" "listener80" {
+  count                      = var.redirect_http_to_https ? 1 : 0
+  network_load_balancer_id   = oci_network_load_balancer_network_load_balancer.nlb.id
   name                       = "${var.name_prefix}-listener-80"
-  default_backend_set_name   = oci_load_balancer_backend_set.backendset80.name
+  default_backend_set_name   = oci_network_load_balancer_backend_set.backendset80[count.index].name
   port                       = 80
   protocol                   = "TCP"
 }
 
-resource "oci_load_balancer_backend_set" "backendset8443" {
-  name             = "${var.name_prefix}-backendset-8443"
-  load_balancer_id = oci_load_balancer_load_balancer.lb.id
-  policy           = "IP_HASH"
+resource "oci_network_load_balancer_backend_set" "backendset8443" {
+  name                     = "${var.name_prefix}-backendset-8443"
+  network_load_balancer_id = oci_network_load_balancer_network_load_balancer.nlb.id
+  policy                   = "FIVE_TUPLE"
 
   health_checker {
-    port        = 9998
-    protocol    = "HTTP"
-    url_path    = "/"
-    retries     = 2
-    interval_ms = 3000
+    port                = 9998
+    protocol            = "HTTP"
+    return_code         = 200
+    url_path            = "/"
+    retries             = 2
+    interval_in_millis  = 30000
   }
 }
 
-resource "oci_load_balancer_listener" "listener8443" {
-  load_balancer_id           = oci_load_balancer_load_balancer.lb.id
+resource "oci_network_load_balancer_listener" "listener8443" {
+  network_load_balancer_id   = oci_network_load_balancer_network_load_balancer.nlb.id
   name                       = "${var.name_prefix}-listener-8443"
-  default_backend_set_name   = oci_load_balancer_backend_set.backendset8443.name
+  default_backend_set_name   = oci_network_load_balancer_backend_set.backendset8443.name
   port                       = 8443
   protocol                   = "TCP"
 }

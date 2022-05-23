@@ -1,6 +1,6 @@
 title: "Banyan OCI Access Tier Module."
 stackDescription: "Creates an autoscaling Access Tier for use with Banyan Security." 
-description: "This module creates an OCI instance pool and a load balancer (LB) for a Banyan Access Tier. Only the LB is exposed to the public internet. The Access Tier and your applications live in private subnet with no ingress from the internet."
+description: "This module creates an OCI instance pool and a network load balancer (NLB) for a Banyan Access Tier. Only the LB is exposed to the public internet. The Access Tier and your applications live in private subnet with no ingress from the internet."
 schemaVersion: 1.1.0
 version: "20190404"
 locale: "en"
@@ -46,27 +46,24 @@ variableGroups:
 - title: Advanced Configuration
   visible: ${show_advanced}
   variables:
-  - healthcheck_cidr
-  - management_cidr
-  - shield_cidr
+  - healthcheck_cidrs
+  - management_cidrs
+  - shield_cidrs
   - shield_port
-  - command_center_cidr
-  - trustprovider_cidr
-  - managed_internal_cidr
+  - command_center_cidrs
+  - trustprovider_cidrs
+  - managed_internal_cidrs
   - name_prefix
   - package_name
   - api_server
   - redirect_http_to_https
   - CPU_HIGH_TH
   - CPU_LOW_TH
-  - lb_shape
-  - lb_min_bw
-  - lb_max_bw
   - custom_user_data
   - tags
   - network_security_group_tags
   - instance_pool_tags
-  - lb_tags
+  - nlb_tags
   - host_tags
   - groups_by_userinfo
 
@@ -224,54 +221,67 @@ variables:
     visible: true
     default: false
 
-  healthcheck_cidr:
-    type: string
-    title: "CIDR block to allow health check connections from (recommended to use the VPC CIDR range)"
-    pattern: "^(?:(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\\.){3}(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)/(?:[0-9]|[12][0-9]|3[0-2])$"
-    default: "0.0.0.0/0"
+  healthcheck_cidrs:
+    type: array
+    title: "CIDR blocks to allow health check connections from (recommended to use the VPC CIDR range)"
+    items:
+      type: string
+      pattern: "^(?:(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\\.){3}(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)/(?:[0-9]|[12][0-9]|3[0-2])$"
+    default: ["0.0.0.0/0"]
     required: true
 
-  management_cidr:
-    type: string
-    title: "CIDR block to allow SSH connections from"
-    pattern: "^(?:(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\\.){3}(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)/(?:[0-9]|[12][0-9]|3[0-2])$"
-    default: "0.0.0.0/0"
-    required: true   
+  management_cidrs:
+    type: array
+    title: "CIDR blocks to allow SSH connections from"
+    items:
+      type: string
+      pattern: "^(?:(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\\.){3}(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)/(?:[0-9]|[12][0-9]|3[0-2])$"
+    default: ["0.0.0.0/0"]
+    required: true
 
-  shield_cidr:
-    type: string
+  shield_cidrs:
+    type: array
     title: "CIDR blocks to allow Shield (Cluster Coordinator) connections to"
-    pattern: "^(?:(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\\.){3}(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)/(?:[0-9]|[12][0-9]|3[0-2])$"
+    items:
+      type: string
+      pattern: "^(?:(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\\.){3}(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)/(?:[0-9]|[12][0-9]|3[0-2])$"
+    default: ["0.0.0.0/0"]
     required: true
   
   shield_port:
     type: integer
     title: "TCP port number to allow Shield (Cluster Coordinator) connections to"
-    description: "Set value 1 to allow all ports"
-    minimum: 1
+    description: "Set value 0 to allow all ports"
+    minimum: 0
     maximum: 65535
-    default: 1
+    default: 0
     required: true
 
-  command_center_cidr:
-    type: string
-    title: "CIDR block to allow Command Center connections to"
-    pattern: "^(?:(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\\.){3}(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)/(?:[0-9]|[12][0-9]|3[0-2])$"
-    default: "0.0.0.0/0"
+  command_center_cidrs:
+    type: array
+    title: "CIDR blocks to allow Command Center connections to"
+    items:
+      type: string
+      pattern: "^(?:(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\\.){3}(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)/(?:[0-9]|[12][0-9]|3[0-2])$"
+    default: ["0.0.0.0/0"]
     required: true
   
-  trustprovider_cidr:
-    type: string
-    title: "CIDR block to allow TrustProvider connections to"
-    pattern: "^(?:(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\\.){3}(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)/(?:[0-9]|[12][0-9]|3[0-2])$"
-    default: "0.0.0.0/0"
+  trustprovider_cidrs:
+    type: array
+    title: "CIDR blocks to allow TrustProvider connections to"
+    items:
+      type: string
+      pattern: "^(?:(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\\.){3}(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)/(?:[0-9]|[12][0-9]|3[0-2])$"
+    default: ["0.0.0.0/0"]
     required: true
 
-  managed_internal_cidr:
-    type: string
+  managed_internal_cidrs:
+    type: array
     title: "CIDR block to allow managed internal services connections to"
-    pattern: "^(?:(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\\.){3}(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)/(?:[0-9]|[12][0-9]|3[0-2])$"
-    default: "0.0.0.0/0"
+    items:
+      type: string
+      pattern: "^(?:(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\\.){3}(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)/(?:[0-9]|[12][0-9]|3[0-2])$"
+    default: ["0.0.0.0/0"]
     required: true
 
   package_name:
@@ -283,7 +293,6 @@ variables:
   api_server:
     type: string
     title: "URL to the Banyan API server"
-    default: "https://net.banyanops.com/api/v1"
     required: true
 
   min_instances:
@@ -323,16 +332,6 @@ variables:
     title: "If true, requests to the AccessTier on port 80 will be redirected to port 443"
     default: false
     required: true
-
-  lb_min_bw:
-    type: integer
-    title: "Minimum bandwidth in Mbps for LB"
-    default: 100
-
-  lb_max_bw:
-    type: integer
-    title: "Maximum bandwidth in Mbps for LB"
-    default: 100
 
   name_prefix:
     type: string
